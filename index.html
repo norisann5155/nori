@@ -4,8 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>マイリンク</title>
-  <!-- スマホのタッチドラッグ対応ライブラリ -->
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -20,7 +18,7 @@
       display: flex;
       justify-content: center;
       min-height: 100vh;
-      padding: 20px 12px 80px;
+      padding: 20px 12px 90px;
       touch-action: manipulation;
     }
     .container {
@@ -54,12 +52,12 @@
     .card-wrap {
       position: relative;
       width: 100%;
-      aspect-ratio: 1 / 1.15;
-      transition: transform 0.15s ease;
+      display: flex;
+      flex-direction: column;
     }
     .card {
       width: 100%;
-      height: 100%;
+      aspect-ratio: 1 / 1.15;
       background-color: #fff;
       border-radius: 16px;
       overflow: hidden;
@@ -125,27 +123,39 @@
       z-index: 10;
     }
 
-    /* 編集モード時のスタイル */
+    /* 順番移動コントローラー（編集時のみ出現） */
+    .order-controls {
+      display: none;
+      justify-content: space-between;
+      margin-top: 4px;
+      gap: 4px;
+    }
+    .order-btn {
+      flex: 1;
+      background: #fff;
+      border: 1px solid #c7c7cc;
+      color: #007aff;
+      font-size: 13px;
+      font-weight: bold;
+      padding: 4px 0;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .order-btn:disabled {
+      color: #ccc;
+      border-color: #eee;
+    }
+
     body.is-editing .edit-badge-btn { display: flex; }
-    body.is-editing .card {
-      border: 2px dashed #007aff;
-      cursor: grab;
-    }
-    /* ドラッグ中の視覚効果 */
-    .sortable-ghost {
-      opacity: 0.35;
-      transform: scale(0.92);
-    }
-    .sortable-chosen {
-      cursor: grabbing;
-    }
+    body.is-editing .order-controls { display: flex; }
+    body.is-editing .card { border: 2px dashed #007aff; }
 
     .toolbar {
       position: fixed;
       bottom: 12px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.8);
+      background: rgba(0, 0, 0, 0.85);
       backdrop-filter: blur(8px);
       padding: 8px 16px;
       border-radius: 30px;
@@ -263,7 +273,6 @@
     let isEditing = false;
     let editingId = null;
     let currentImageData = "";
-    let sortableInstance = null;
 
     async function loadData() {
       try {
@@ -273,7 +282,6 @@
         const data = await res.json();
         items = data.record;
         renderGrid();
-        initSortable();
       } catch (e) {
         console.error("読み込みエラー:", e);
       }
@@ -302,10 +310,9 @@
       const grid = document.getElementById("gridContainer");
       grid.innerHTML = "";
 
-      items.forEach(item => {
+      items.forEach((item, index) => {
         const wrap = document.createElement("div");
         wrap.className = "card-wrap";
-        wrap.setAttribute("data-id", item.id);
         wrap.innerHTML = `
           <div class="edit-badge-btn" onclick="deleteItem(event, ${item.id})">×</div>
           <a href="${item.url}" class="card" onclick="handleCardClick(event, ${item.id})">
@@ -313,27 +320,26 @@
             ${item.title ? `<span class="card-title-badge">${item.title}</span>` : ""}
             ${item.badge ? `<span class="card-footer-badge">${item.badge}</span>` : ""}
           </a>
+          <div class="order-controls">
+            <button class="order-btn" ${index === 0 ? 'disabled' : ''} onclick="moveItem(${index}, -1)">◀</button>
+            <button class="order-btn" ${index === items.length - 1 ? 'disabled' : ''} onclick="moveItem(${index}, 1)">▶</button>
+          </div>
         `;
         grid.appendChild(wrap);
       });
     }
 
-    function initSortable() {
-      const grid = document.getElementById("gridContainer");
-      sortableInstance = new Sortable(grid, {
-        animation: 200,
-        disabled: true, // 通常時はドラッグ無効（タップ誤爆防止）
-        ghostClass: 'sortable-ghost',
-        chosenClass: 'sortable-chosen',
-        delay: 80, // スマホのスクロールと誤爆しないよう微小ディレイ
-        delayOnTouchOnly: true,
-        onEnd: async function () {
-          // ドラッグ終了時にDOMの並び順から配列を再生成
-          const newOrderIds = Array.from(grid.children).map(child => Number(child.getAttribute("data-id")));
-          items = newOrderIds.map(id => items.find(item => item.id === id));
-          await syncData();
-        }
-      });
+    async function moveItem(index, direction) {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= items.length) return;
+
+      // 配列の要素を入れ替え
+      const temp = items[index];
+      items[index] = items[targetIndex];
+      items[targetIndex] = temp;
+
+      renderGrid();
+      await syncData();
     }
 
     function toggleEditMode() {
@@ -341,11 +347,6 @@
       document.body.classList.toggle("is-editing", isEditing);
       document.getElementById("editToggleBtn").innerText = isEditing ? "完了" : "編集";
       document.getElementById("addBtn").style.display = isEditing ? "inline-block" : "none";
-
-      // 編集モード中のみドラッグ並び替えを有効化
-      if (sortableInstance) {
-        sortableInstance.option("disabled", !isEditing);
-      }
     }
 
     function handleCardClick(event, id) {
