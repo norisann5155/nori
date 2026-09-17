@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>マイリンク</title>
+  <title>nori's link</title>
+  <!-- スマホタッチ操作対応 SortableJS -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -18,7 +20,7 @@
       display: flex;
       justify-content: center;
       min-height: 100vh;
-      padding: 20px 12px 90px;
+      padding: 16px 12px 90px;
       touch-action: manipulation;
     }
     .container {
@@ -27,21 +29,13 @@
       text-align: center;
       position: relative;
     }
-    .profile-icon {
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      object-fit: cover;
-      margin: 0 auto 8px;
-      display: block;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-      background-color: #ddd;
-    }
-    .profile-name {
-      font-size: 16px;
-      font-weight: 700;
-      color: #222;
-      margin-bottom: 20px;
+    .page-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: #666;
+      margin-bottom: 14px;
+      text-transform: lowercase;
     }
     .link-grid {
       display: grid;
@@ -52,12 +46,11 @@
     .card-wrap {
       position: relative;
       width: 100%;
-      display: flex;
-      flex-direction: column;
+      aspect-ratio: 1 / 1.15;
     }
     .card {
       width: 100%;
-      aspect-ratio: 1 / 1.15;
+      height: 100%;
       background-color: #fff;
       border-radius: 16px;
       overflow: hidden;
@@ -123,32 +116,43 @@
       z-index: 10;
     }
 
-    /* 順番移動コントローラー（編集時のみ出現） */
-    .order-controls {
+    /* ドラッグ専用つまみ（編集時のみ出現） */
+    .drag-handle {
       display: none;
-      justify-content: space-between;
-      margin-top: 4px;
-      gap: 4px;
-    }
-    .order-btn {
-      flex: 1;
-      background: #fff;
-      border: 1px solid #c7c7cc;
-      color: #007aff;
-      font-size: 13px;
+      position: absolute;
+      bottom: -4px;
+      right: -4px;
+      background: #007aff;
+      color: #fff;
+      border: 2px solid #fff;
+      border-radius: 8px;
+      width: 28px;
+      height: 28px;
+      font-size: 16px;
       font-weight: bold;
-      padding: 4px 0;
-      border-radius: 6px;
-      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+      z-index: 10;
+      touch-action: none; /* スクロール暴発を完全防止 */
     }
-    .order-btn:disabled {
-      color: #ccc;
-      border-color: #eee;
+    .drag-handle:active {
+      cursor: grabbing;
+      background: #0051a8;
     }
 
     body.is-editing .edit-badge-btn { display: flex; }
-    body.is-editing .order-controls { display: flex; }
+    body.is-editing .drag-handle { display: flex; }
     body.is-editing .card { border: 2px dashed #007aff; }
+
+    /* ドラッグ移動中の見た目 */
+    .sortable-ghost {
+      opacity: 0.2;
+      transform: scale(0.9);
+    }
+    .sortable-chosen {
+      box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+    }
 
     .toolbar {
       position: fixed;
@@ -235,8 +239,7 @@
 <body>
 
   <div class="container">
-    <img src="https://images.unsplash.com/photo-1509440159596-0249088772ff?w=200" class="profile-icon" alt="Profile">
-    <div class="profile-name">のり</div>
+    <div class="page-title">nori's link</div>
     <div class="link-grid" id="gridContainer"></div>
   </div>
 
@@ -273,6 +276,7 @@
     let isEditing = false;
     let editingId = null;
     let currentImageData = "";
+    let sortableInstance = null;
 
     async function loadData() {
       try {
@@ -282,6 +286,7 @@
         const data = await res.json();
         items = data.record;
         renderGrid();
+        initSortable();
       } catch (e) {
         console.error("読み込みエラー:", e);
       }
@@ -310,36 +315,38 @@
       const grid = document.getElementById("gridContainer");
       grid.innerHTML = "";
 
-      items.forEach((item, index) => {
+      items.forEach(item => {
         const wrap = document.createElement("div");
         wrap.className = "card-wrap";
+        wrap.setAttribute("data-id", item.id);
         wrap.innerHTML = `
           <div class="edit-badge-btn" onclick="deleteItem(event, ${item.id})">×</div>
+          <div class="drag-handle">≡</div>
           <a href="${item.url}" class="card" onclick="handleCardClick(event, ${item.id})">
             <img src="${item.image || 'https://via.placeholder.com/300'}" alt="${item.title}">
             ${item.title ? `<span class="card-title-badge">${item.title}</span>` : ""}
             ${item.badge ? `<span class="card-footer-badge">${item.badge}</span>` : ""}
           </a>
-          <div class="order-controls">
-            <button class="order-btn" ${index === 0 ? 'disabled' : ''} onclick="moveItem(${index}, -1)">◀</button>
-            <button class="order-btn" ${index === items.length - 1 ? 'disabled' : ''} onclick="moveItem(${index}, 1)">▶</button>
-          </div>
         `;
         grid.appendChild(wrap);
       });
     }
 
-    async function moveItem(index, direction) {
-      const targetIndex = index + direction;
-      if (targetIndex < 0 || targetIndex >= items.length) return;
-
-      // 配列の要素を入れ替え
-      const temp = items[index];
-      items[index] = items[targetIndex];
-      items[targetIndex] = temp;
-
-      renderGrid();
-      await syncData();
+    function initSortable() {
+      const grid = document.getElementById("gridContainer");
+      sortableInstance = new Sortable(grid, {
+        animation: 200,
+        handle: '.drag-handle', // ≡ つまみだけをドラッグ対象にする
+        disabled: true,
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        touchStartThreshold: 3,
+        onEnd: async function () {
+          const newOrderIds = Array.from(grid.children).map(child => Number(child.getAttribute("data-id")));
+          items = newOrderIds.map(id => items.find(item => item.id === id));
+          await syncData();
+        }
+      });
     }
 
     function toggleEditMode() {
@@ -347,6 +354,10 @@
       document.body.classList.toggle("is-editing", isEditing);
       document.getElementById("editToggleBtn").innerText = isEditing ? "完了" : "編集";
       document.getElementById("addBtn").style.display = isEditing ? "inline-block" : "none";
+
+      if (sortableInstance) {
+        sortableInstance.option("disabled", !isEditing);
+      }
     }
 
     function handleCardClick(event, id) {
