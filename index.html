@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>マイリンク</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    body {
+      background: linear-gradient(180deg, #e3f2fd 0%, #fff9e6 15%, #f7f9fa 35%, #f7f9fa 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px 12px 80px;
+      touch-action: manipulation;
+    }
+    .container {
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+      position: relative;
+    }
+    .profile-icon {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin: 0 auto 8px;
+      display: block;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      background-color: #ddd;
+    }
+    .profile-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: #222;
+      margin-bottom: 20px;
+    }
+    .link-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      width: 100%;
+    }
+    .card-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1 / 1.15;
+    }
+    .card {
+      width: 100%;
+      height: 100%;
+      background-color: #fff;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      text-decoration: none;
+      display: flex;
+      position: relative;
+      touch-action: manipulation;
+    }
+    .card:active { transform: scale(0.97); }
+    .card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .card-title-badge {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      right: 6px;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(2px);
+      padding: 4px 6px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #111;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      pointer-events: none;
+    }
+    .card-footer-badge {
+      position: absolute;
+      bottom: 6px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.9);
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #333;
+      pointer-events: none;
+    }
+    .edit-badge-btn {
+      display: none;
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      background: #ff3b30;
+      color: #fff;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      font-size: 12px;
+      font-weight: bold;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+    }
+    body.is-editing .edit-badge-btn { display: flex; }
+    body.is-editing .card { border: 2px dashed #007aff; }
+
+    .toolbar {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(8px);
+      padding: 8px 16px;
+      border-radius: 30px;
+      display: flex;
+      gap: 12px;
+      z-index: 100;
+    }
+    .tool-btn {
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 20px;
+      cursor: pointer;
+    }
+    .tool-btn.primary { background: #007aff; }
+
+    .modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal.active { display: flex; }
+    .modal-content {
+      background: #fff;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 340px;
+      padding: 20px;
+      user-select: text;
+    }
+    .modal-content input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <img src="https://images.unsplash.com/photo-1509440159596-0249088772ff?w=200" class="profile-icon" alt="Profile">
+    <div class="profile-name">のり</div>
+    <div class="link-grid" id="gridContainer"></div>
+  </div>
+
+  <div class="toolbar">
+    <button class="tool-btn" id="editToggleBtn" onclick="toggleEditMode()">編集</button>
+    <button class="tool-btn primary" id="addBtn" onclick="openModal()" style="display: none;">＋ 追加</button>
+  </div>
+
+  <div class="modal" id="itemModal">
+    <div class="modal-content">
+      <h3 style="margin-bottom: 14px; font-size: 16px;" id="modalTitle">アイテムの編集</h3>
+      <input type="text" id="inputTitle" placeholder="タイトル（例: ブロッコリー）">
+      <input type="text" id="inputBadge" placeholder="下部バッジ（例: 880）">
+      <input type="url" id="inputUrl" placeholder="遷移先URL (https://...)">
+      <input type="url" id="inputImage" placeholder="画像URL (https://...)">
+      <div class="modal-actions">
+        <button class="tool-btn" style="color:#666;" onclick="closeModal()">キャンセル</button>
+        <button class="tool-btn primary" onclick="saveItem()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const BIN_ID = "6aab42ecffd5d160531035fa";
+    const API_KEY = "$2a$10$x2TXqhoBWRugR7kXJl.T7.HPlk2zFNzrAiDhAXWbfuxBnHAWY/OEi";
+
+    let items = [];
+    let isEditing = false;
+    let editingId = null;
+
+    async function loadData() {
+      try {
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, {
+          headers: { "X-Master-Key": API_KEY }
+        });
+        const data = await res.json();
+        items = data.record;
+        renderGrid();
+      } catch (e) {
+        console.error("読み込みエラー:", e);
+      }
+    }
+
+    async function syncData() {
+      renderGrid();
+      try {
+        await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Master-Key": API_KEY
+          },
+          body: JSON.stringify(items)
+        });
+      } catch (e) {
+        alert("保存に失敗しました。電波環境を確認してください。");
+      }
+    }
+
+    function renderGrid() {
+      const grid = document.getElementById("gridContainer");
+      grid.innerHTML = "";
+
+      items.forEach(item => {
+        const wrap = document.createElement("div");
+        wrap.className = "card-wrap";
+        wrap.innerHTML = `
+          <div class="edit-badge-btn" onclick="deleteItem(${item.id})">×</div>
+          <a href="${item.url}" class="card" onclick="handleCardClick(event, ${item.id})">
+            <img src="${item.image}" alt="${item.title}">
+            ${item.title ? `<span class="card-title-badge">${item.title}</span>` : ""}
+            ${item.badge ? `<span class="card-footer-badge">${item.badge}</span>` : ""}
+          </a>
+        `;
+        grid.appendChild(wrap);
+      });
+    }
+
+    function toggleEditMode() {
+      isEditing = !isEditing;
+      document.body.classList.toggle("is-editing", isEditing);
+      document.getElementById("editToggleBtn").innerText = isEditing ? "完了" : "編集";
+      document.getElementById("addBtn").style.display = isEditing ? "inline-block" : "none";
+    }
+
+    function handleCardClick(event, id) {
+      if (isEditing) {
+        event.preventDefault();
+        openModal(id);
+      }
+    }
+
+    function openModal(id = null) {
+      editingId = id;
+      const modal = document.getElementById("itemModal");
+      const title = document.getElementById("modalTitle");
+
+      if (id) {
+        title.innerText = "アイテムを編集";
+        const item = items.find(i => i.id === id);
+        document.getElementById("inputTitle").value = item.title;
+        document.getElementById("inputBadge").value = item.badge;
+        document.getElementById("inputUrl").value = item.url;
+        document.getElementById("inputImage").value = item.image;
+      } else {
+        title.innerText = "新規アイテムを追加";
+        document.getElementById("inputTitle").value = "";
+        document.getElementById("inputBadge").value = "";
+        document.getElementById("inputUrl").value = "";
+        document.getElementById("inputImage").value = "";
+      }
+      modal.classList.add("active");
+    }
+
+    function closeModal() {
+      document.getElementById("itemModal").classList.remove("active");
+    }
+
+    async function saveItem() {
+      const title = document.getElementById("inputTitle").value;
+      const badge = document.getElementById("inputBadge").value;
+      const url = document.getElementById("inputUrl").value;
+      const image = document.getElementById("inputImage").value;
+
+      if (!url) {
+        alert("URLは必須です");
+        return;
+      }
+
+      if (editingId) {
+        const item = items.find(i => i.id === editingId);
+        item.title = title;
+        item.badge = badge;
+        item.url = url;
+        item.image = image || "https://via.placeholder.com/300";
+      } else {
+        items.push({
+          id: Date.now(),
+          title,
+          badge,
+          url,
+          image: image || "https://via.placeholder.com/300"
+        });
+      }
+
+      closeModal();
+      await syncData();
+    }
+
+    async function deleteItem(id) {
+      if (confirm("このアイテムを削除しますか？")) {
+        items = items.filter(i => i.id !== id);
+        await syncData();
+      }
+    }
+
+    loadData();
+  </script>
+</body>
+</html>
