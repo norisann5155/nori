@@ -167,7 +167,8 @@
       padding: 20px;
       user-select: text;
     }
-    .modal-content input {
+    .modal-content input[type="text"],
+    .modal-content input[type="url"] {
       width: 100%;
       padding: 10px;
       margin-bottom: 12px;
@@ -175,10 +176,32 @@
       border-radius: 8px;
       font-size: 14px;
     }
+    .file-input-group {
+      margin-bottom: 12px;
+      text-align: left;
+    }
+    .file-input-group label {
+      font-size: 12px;
+      font-weight: bold;
+      color: #666;
+      display: block;
+      margin-bottom: 4px;
+    }
+    .preview-box {
+      width: 60px;
+      height: 60px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      object-fit: cover;
+      display: block;
+      margin-top: 6px;
+      background-color: #eee;
+    }
     .modal-actions {
       display: flex;
       justify-content: flex-end;
       gap: 8px;
+      margin-top: 10px;
     }
   </style>
 </head>
@@ -198,13 +221,19 @@
   <div class="modal" id="itemModal">
     <div class="modal-content">
       <h3 style="margin-bottom: 14px; font-size: 16px;" id="modalTitle">アイテムの編集</h3>
-      <input type="text" id="inputTitle" placeholder="タイトル（例: ブロッコリー）">
-      <input type="text" id="inputBadge" placeholder="下部バッジ（例: 880）">
+      <input type="text" id="inputTitle" placeholder="タイトル（例: プレモル）">
+      <input type="text" id="inputBadge" placeholder="下部バッジ（例: 350ml）">
       <input type="url" id="inputUrl" placeholder="遷移先URL (https://...)">
-      <input type="url" id="inputImage" placeholder="画像URL (https://...)">
+
+      <div class="file-input-group">
+        <label>画像を選択（iPhoneの写真ライブラリ）</label>
+        <input type="file" id="inputFile" accept="image/*" onchange="handleImageUpload(event)">
+        <img id="imagePreview" class="preview-box" src="">
+      </div>
+
       <div class="modal-actions">
         <button class="tool-btn" style="color:#666;" onclick="closeModal()">キャンセル</button>
-        <button class="tool-btn primary" onclick="saveItem()">保存</button>
+        <button class="tool-btn primary" id="saveBtn" onclick="saveItem()">保存</button>
       </div>
     </div>
   </div>
@@ -216,6 +245,7 @@
     let items = [];
     let isEditing = false;
     let editingId = null;
+    let currentImageData = "";
 
     async function loadData() {
       try {
@@ -232,6 +262,8 @@
 
     async function syncData() {
       renderGrid();
+      const saveBtn = document.getElementById("saveBtn");
+      saveBtn.innerText = "保存中...";
       try {
         await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
           method: "PUT",
@@ -243,6 +275,8 @@
         });
       } catch (e) {
         alert("保存に失敗しました。電波環境を確認してください。");
+      } finally {
+        saveBtn.innerText = "保存";
       }
     }
 
@@ -256,7 +290,7 @@
         wrap.innerHTML = `
           <div class="edit-badge-btn" onclick="deleteItem(${item.id})">×</div>
           <a href="${item.url}" class="card" onclick="handleCardClick(event, ${item.id})">
-            <img src="${item.image}" alt="${item.title}">
+            <img src="${item.image || 'https://via.placeholder.com/300'}" alt="${item.title}">
             ${item.title ? `<span class="card-title-badge">${item.title}</span>` : ""}
             ${item.badge ? `<span class="card-footer-badge">${item.badge}</span>` : ""}
           </a>
@@ -283,6 +317,8 @@
       editingId = id;
       const modal = document.getElementById("itemModal");
       const title = document.getElementById("modalTitle");
+      const preview = document.getElementById("imagePreview");
+      document.getElementById("inputFile").value = "";
 
       if (id) {
         title.innerText = "アイテムを編集";
@@ -290,13 +326,15 @@
         document.getElementById("inputTitle").value = item.title;
         document.getElementById("inputBadge").value = item.badge;
         document.getElementById("inputUrl").value = item.url;
-        document.getElementById("inputImage").value = item.image;
+        currentImageData = item.image || "";
+        preview.src = currentImageData;
       } else {
         title.innerText = "新規アイテムを追加";
         document.getElementById("inputTitle").value = "";
         document.getElementById("inputBadge").value = "";
         document.getElementById("inputUrl").value = "";
-        document.getElementById("inputImage").value = "";
+        currentImageData = "https://via.placeholder.com/300";
+        preview.src = currentImageData;
       }
       modal.classList.add("active");
     }
@@ -305,11 +343,39 @@
       document.getElementById("itemModal").classList.remove("active");
     }
 
+    // iPhoneの写真選択時に自動リサイズ＆データ変換
+    function handleImageUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+          // タイル表示用に正方形（最大200x200）に圧縮（通信量カット）
+          const canvas = document.createElement("canvas");
+          const size = 200;
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext("2d");
+
+          const minSide = Math.min(img.width, img.height);
+          const sx = (img.width - minSide) / 2;
+          const sy = (img.height - minSide) / 2;
+
+          ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+          currentImageData = canvas.toDataURL("image/jpeg", 0.7); // 圧縮
+          document.getElementById("imagePreview").src = currentImageData;
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
     async function saveItem() {
       const title = document.getElementById("inputTitle").value;
       const badge = document.getElementById("inputBadge").value;
       const url = document.getElementById("inputUrl").value;
-      const image = document.getElementById("inputImage").value;
 
       if (!url) {
         alert("URLは必須です");
@@ -321,14 +387,14 @@
         item.title = title;
         item.badge = badge;
         item.url = url;
-        item.image = image || "https://via.placeholder.com/300";
+        item.image = currentImageData;
       } else {
         items.push({
           id: Date.now(),
           title,
           badge,
           url,
-          image: image || "https://via.placeholder.com/300"
+          image: currentImageData
         });
       }
 
