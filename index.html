@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>マイリンク</title>
+  <!-- スマホのタッチドラッグ対応ライブラリ -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -53,6 +55,7 @@
       position: relative;
       width: 100%;
       aspect-ratio: 1 / 1.15;
+      transition: transform 0.15s ease;
     }
     .card {
       width: 100%;
@@ -71,6 +74,7 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
+      pointer-events: none;
     }
     .card-title-badge {
       position: absolute;
@@ -120,8 +124,21 @@
       cursor: pointer;
       z-index: 10;
     }
+
+    /* 編集モード時のスタイル */
     body.is-editing .edit-badge-btn { display: flex; }
-    body.is-editing .card { border: 2px dashed #007aff; }
+    body.is-editing .card {
+      border: 2px dashed #007aff;
+      cursor: grab;
+    }
+    /* ドラッグ中の視覚効果 */
+    .sortable-ghost {
+      opacity: 0.35;
+      transform: scale(0.92);
+    }
+    .sortable-chosen {
+      cursor: grabbing;
+    }
 
     .toolbar {
       position: fixed;
@@ -246,6 +263,7 @@
     let isEditing = false;
     let editingId = null;
     let currentImageData = "";
+    let sortableInstance = null;
 
     async function loadData() {
       try {
@@ -255,15 +273,15 @@
         const data = await res.json();
         items = data.record;
         renderGrid();
+        initSortable();
       } catch (e) {
         console.error("読み込みエラー:", e);
       }
     }
 
     async function syncData() {
-      renderGrid();
       const saveBtn = document.getElementById("saveBtn");
-      saveBtn.innerText = "保存中...";
+      if (saveBtn) saveBtn.innerText = "保存中...";
       try {
         await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
           method: "PUT",
@@ -274,9 +292,9 @@
           body: JSON.stringify(items)
         });
       } catch (e) {
-        alert("保存に失敗しました。電波環境を確認してください。");
+        alert("同期に失敗しました。電波環境を確認してください。");
       } finally {
-        saveBtn.innerText = "保存";
+        if (saveBtn) saveBtn.innerText = "保存";
       }
     }
 
@@ -287,8 +305,9 @@
       items.forEach(item => {
         const wrap = document.createElement("div");
         wrap.className = "card-wrap";
+        wrap.setAttribute("data-id", item.id);
         wrap.innerHTML = `
-          <div class="edit-badge-btn" onclick="deleteItem(${item.id})">×</div>
+          <div class="edit-badge-btn" onclick="deleteItem(event, ${item.id})">×</div>
           <a href="${item.url}" class="card" onclick="handleCardClick(event, ${item.id})">
             <img src="${item.image || 'https://via.placeholder.com/300'}" alt="${item.title}">
             ${item.title ? `<span class="card-title-badge">${item.title}</span>` : ""}
@@ -299,11 +318,34 @@
       });
     }
 
+    function initSortable() {
+      const grid = document.getElementById("gridContainer");
+      sortableInstance = new Sortable(grid, {
+        animation: 200,
+        disabled: true, // 通常時はドラッグ無効（タップ誤爆防止）
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        delay: 80, // スマホのスクロールと誤爆しないよう微小ディレイ
+        delayOnTouchOnly: true,
+        onEnd: async function () {
+          // ドラッグ終了時にDOMの並び順から配列を再生成
+          const newOrderIds = Array.from(grid.children).map(child => Number(child.getAttribute("data-id")));
+          items = newOrderIds.map(id => items.find(item => item.id === id));
+          await syncData();
+        }
+      });
+    }
+
     function toggleEditMode() {
       isEditing = !isEditing;
       document.body.classList.toggle("is-editing", isEditing);
       document.getElementById("editToggleBtn").innerText = isEditing ? "完了" : "編集";
       document.getElementById("addBtn").style.display = isEditing ? "inline-block" : "none";
+
+      // 編集モード中のみドラッグ並び替えを有効化
+      if (sortableInstance) {
+        sortableInstance.option("disabled", !isEditing);
+      }
     }
 
     function handleCardClick(event, id) {
@@ -343,7 +385,6 @@
       document.getElementById("itemModal").classList.remove("active");
     }
 
-    // iPhoneの写真選択時に自動リサイズ＆データ変換
     function handleImageUpload(e) {
       const file = e.target.files[0];
       if (!file) return;
@@ -352,7 +393,6 @@
       reader.onload = function(event) {
         const img = new Image();
         img.onload = function() {
-          // タイル表示用に正方形（最大200x200）に圧縮（通信量カット）
           const canvas = document.createElement("canvas");
           const size = 200;
           canvas.width = size;
@@ -364,7 +404,7 @@
           const sy = (img.height - minSide) / 2;
 
           ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
-          currentImageData = canvas.toDataURL("image/jpeg", 0.7); // 圧縮
+          currentImageData = canvas.toDataURL("image/jpeg", 0.7);
           document.getElementById("imagePreview").src = currentImageData;
         };
         img.src = event.target.result;
@@ -399,12 +439,15 @@
       }
 
       closeModal();
+      renderGrid();
       await syncData();
     }
 
-    async function deleteItem(id) {
+    async function deleteItem(event, id) {
+      event.stopPropagation();
       if (confirm("このアイテムを削除しますか？")) {
         items = items.filter(i => i.id !== id);
+        renderGrid();
         await syncData();
       }
     }
